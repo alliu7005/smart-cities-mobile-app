@@ -2,6 +2,8 @@ CiviSense
 
 <img width="820" height="294" alt="image" src="https://github.com/user-attachments/assets/59d0175c-dfd2-4015-ad7c-221792f1b5b7" />
 
+![Simulator Screen Recording - iPhone 16 Pro - 2025-11-10 at 21 14 47](https://github.com/user-attachments/assets/9e87e183-9c76-437f-936b-4b26d0bb722f)
+
 
 What's the big idea?
 
