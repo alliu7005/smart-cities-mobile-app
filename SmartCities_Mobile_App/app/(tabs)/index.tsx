@@ -1,17 +1,24 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
+  Easing,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
   PanResponder,
+  Platform,
   SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
+import MapView, { MapPressEvent, Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
 const { height: H, width: W } = Dimensions.get("window");
 const BOTTOM_SHEET_HEIGHT = Math.max(H * 0.48, 320);
@@ -25,24 +32,76 @@ type MapPin = {
   coordinate: { latitude: number; longitude: number };
 };
 
-const PINS: MapPin[] = [
+const INITIAL_PINS: MapPin[] = [
   {
     id: "1",
     title: "660 Indian Trail Lilburn Rd NW Suite 300, Lilburn, GA 30047",
     subtitle: "Open",
-    coordinate: { latitude: 37.78825, longitude: -122.4324 },
+    coordinate: { latitude: 33.7501, longitude: -84.3885 },
   },
 ];
 
+// --- New Component: Pulsing Marker ---
+const PulsingMarker = () => {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 2000,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [anim]);
+
+  const scale = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.2], // Scales to 2.8x
+  });
+
+  const opacity = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.6, 0], // Fades out
+  });
+
+  return (
+    <View style={styles.marker}>
+      {/* Animated pulse layer */}
+      <Animated.View
+        style={[
+          styles.markerPulse,
+          {
+            transform: [{ scale }],
+            opacity,
+          },
+        ]}
+      />
+      {/* Static center dot */}
+      <View style={styles.markerDot} />
+    </View>
+  );
+};
+
 export default function HomeScreen() {
+  // --- Animation & Sheet State ---
   const sheetY = useRef(new Animated.Value(SHEET_SNAP_BOTTOM)).current;
   const sheetPan = useRef({ y: SHEET_SNAP_BOTTOM }).current;
+  
+  // --- Data State ---
+  const [pins, setPins] = useState<MapPin[]>(INITIAL_PINS);
   const [activePin, setActivePin] = useState<MapPin | null>(null);
 
-  // Map region (centered around pins)
+  // --- Modal / Add Pin State ---
+  const [modalVisible, setModalVisible] = useState(false);
+  const [newPinCoords, setNewPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [newTitle, setNewTitle] = useState("");
+  const [newSubtitle, setNewSubtitle] = useState("");
+
   const initialRegion: Region = {
-    latitude: 37.78825,
-    longitude: -122.4324,
+    latitude: 33.7501,
+    longitude: -84.3885,
     latitudeDelta: 0.03,
     longitudeDelta: 0.03,
   };
@@ -106,9 +165,39 @@ export default function HomeScreen() {
     });
   };
 
+  const handleLongPress = (e: MapPressEvent) => {
+    const coords = e.nativeEvent.coordinate;
+    setNewPinCoords(coords);
+    setModalVisible(true);
+  };
+
+  const saveNewPin = () => {
+    if (!newTitle.trim() || !newPinCoords) return;
+
+    const newPin: MapPin = {
+      id: Date.now().toString(),
+      title: newTitle,
+      subtitle: newSubtitle || "User added location",
+      coordinate: newPinCoords,
+    };
+
+    setPins([...pins, newPin]);
+    closeModal();
+  };
+
+  const closeModal = () => {
+    setModalVisible(false);
+    setNewTitle("");
+    setNewSubtitle("");
+    setNewPinCoords(null);
+  };
+
+  const date = new Date()
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
+      
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -128,12 +217,13 @@ export default function HomeScreen() {
       {/* Map */}
       <View style={styles.mapWrap}>
         <MapView
-          provider={PROVIDER_GOOGLE} // optional: remove if you prefer Apple Maps on iOS
+          provider={PROVIDER_GOOGLE}
           style={styles.map}
           initialRegion={initialRegion}
           showsUserLocation={false}
+          onLongPress={handleLongPress}
         >
-          {PINS.map((p) => (
+          {pins.map((p) => (
             <Marker
               key={p.id}
               coordinate={p.coordinate}
@@ -141,17 +231,26 @@ export default function HomeScreen() {
               title={p.title}
               description={p.subtitle}
             >
-              {/* Custom small marker: circle + pulse */}
-              <View style={styles.marker}>
-                <View style={styles.markerDot} />
-                <View style={styles.markerPulse} />
-              </View>
+              <PulsingMarker />
             </Marker>
           ))}
+          
+          {modalVisible && newPinCoords && (
+             <Marker coordinate={newPinCoords} opacity={0.6}>
+               <PulsingMarker />
+             </Marker>
+          )}
         </MapView>
       </View>
 
-      {/* Bottom sheet (animated) */}
+      {/* Instructions Overlay */}
+      {!activePin && !modalVisible && (
+        <View style={styles.instructionOverlay}>
+          <Text style={styles.instructionText}>Long press map to add pin</Text>
+        </View>
+      )}
+
+      {/* Bottom sheet */}
       <Animated.View style={[styles.sheet, { top: sheetY }]}>
         <View {...panResponder.panHandlers} style={styles.sheetHandleContainer}>
           <View style={styles.handle} />
@@ -163,7 +262,6 @@ export default function HomeScreen() {
               <View style={styles.sheetHeaderRow}>
                 <Text style={styles.sheetTitle}>{activePin.title}</Text>
                 <TouchableOpacity onPress={closeSheet} style={styles.closeBtn}>
-                  {/* <Text style={styles.closeText}>Close</Text> */}
                 </TouchableOpacity>
               </View>
 
@@ -176,15 +274,11 @@ export default function HomeScreen() {
               <View style={styles.list}>
                 <View style={styles.listItem}>
                   <Text style={styles.listItemTitle}>Last reported</Text>
-                  <Text style={styles.listItemValue}>4/14/2025, 5:31:34 PM</Text>
+                  <Text style={styles.listItemValue}>{date.toString()}</Text>
                 </View>
                 <View style={styles.listItem}>
                   <Text style={styles.listItemTitle}>Severity</Text>
                   <Text style={styles.listItemValue}>Urgent Issue</Text>
-                </View>
-                <View style={styles.listItem}>
-                  <Text style={styles.listItemTitle}>Open complaints</Text>
-                  <Text style={styles.badge}>3</Text>
                 </View>
               </View>
 
@@ -203,7 +297,6 @@ export default function HomeScreen() {
 
               <View style={styles.recentList}>
                 <Text style={styles.recentHeader}>Recent reports</Text>
-
                 <View style={styles.reportRow}>
                   <View style={styles.smallDot} />
                   <View style={{ marginLeft: 12 }}>
@@ -211,7 +304,6 @@ export default function HomeScreen() {
                     <Text style={styles.reportTime}>3h ago • Stall B</Text>
                   </View>
                 </View>
-
                 <View style={styles.reportRow}>
                   <View style={styles.smallDot} />
                   <View style={{ marginLeft: 12 }}>
@@ -219,19 +311,58 @@ export default function HomeScreen() {
                     <Text style={styles.reportTime}>1d ago • Stall A</Text>
                   </View>
                 </View>
-
-                <View style={styles.reportRow}>
-                  <View style={styles.smallDot} />
-                  <View style={{ marginLeft: 12 }}>
-                    <Text style={styles.reportTitle}>Missing items</Text>
-                    <Text style={styles.reportTime}>2d ago • Stall C</Text>
-                  </View>
-                </View>
               </View>
             </>
           )}
         </View>
       </Animated.View>
+
+      {/* Add Pin Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={closeModal}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={styles.modalOverlay}
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.modalHeader}>Add New Complaint</Text>
+              
+              <Text style={styles.inputLabel}>Title</Text>
+              <TextInput 
+                style={styles.input} 
+                placeholder="e.g. Broken streetlight" 
+                value={newTitle}
+                onChangeText={setNewTitle}
+                autoFocus
+              />
+
+              <Text style={styles.inputLabel}>Subtitle</Text>
+              <TextInput 
+                style={styles.input} 
+                placeholder="e.g. There is a broken streetlight" 
+                value={newSubtitle}
+                onChangeText={setNewSubtitle}
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity onPress={closeModal} style={[styles.modalBtn, styles.cancelBtn]}>
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={saveNewPin} style={[styles.modalBtn, styles.saveBtn]}>
+                  <Text style={styles.saveBtnText}>Save Pin</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -262,27 +393,48 @@ const styles = StyleSheet.create({
   mapWrap: { paddingHorizontal: 0, height: H },
   map: { flex: 1, borderRadius: 12, overflow: "hidden" },
 
+  // --- START OF PULSING FIX STYLES ---
   marker: {
+    // Increased size to prevent clipping the circle animation
+    width: 40, 
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
-    width: 36,
-    height: 36,
+    borderColor: 'black',
+    borderWidth: 0,
   },
   markerDot: {
     width: 14,
     height: 14,
-    borderRadius: 8,
+    borderRadius: 7,
     backgroundColor: "#ff4d6d",
     borderWidth: 2,
     borderColor: "#fff",
-    zIndex: 2,
+    zIndex: 2, // Keeps dot on top
   },
   markerPulse: {
     position: "absolute",
-    width: 36,
+    width: 36, // Initial size before scale
     height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,77,109,0.18)",
+    borderRadius: 18, // Perfect circle
+    backgroundColor: "#ff4d6d",
+    zIndex: 1,
+  },
+  // --- END OF PULSING FIX STYLES ---
+
+  instructionOverlay: {
+    position: 'absolute',
+    top: 120,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  instructionText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600'
   },
 
   sheet: {
@@ -311,7 +463,6 @@ const styles = StyleSheet.create({
   sheetTitle: { fontSize: 18, fontWeight: "700", color: "#0b1320" },
   sheetSubtitle: { marginTop: 6, color: "#64748b" },
   closeBtn: { paddingHorizontal: 8, paddingVertical: 6 },
-  closeText: { color: "#2563eb", fontWeight: "600" },
 
   divider: { height: 1, backgroundColor: "#eef2f7", marginVertical: 12, borderRadius: 1 },
   list: { marginTop: 6 },
@@ -346,4 +497,70 @@ const styles = StyleSheet.create({
   smallDot: { width: 10, height: 10, borderRadius: 6, backgroundColor: "#ff4d6d" },
   reportTitle: { fontWeight: "600", color: "#0b1320" },
   reportTime: { color: "#64748b", fontSize: 12 },
+
+  // --- Modal Styles ---
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  modalHeader: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0b1320',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+    marginBottom: 6,
+    marginTop: 10,
+  },
+  input: {
+    backgroundColor: '#F0F1F6',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    fontSize: 16,
+    color: '#0b1320',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    marginTop: 24,
+    justifyContent: 'space-between',
+    gap: 12
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  cancelBtn: {
+    backgroundColor: '#F0F1F6',
+  },
+  cancelBtnText: {
+    color: '#64748b',
+    fontWeight: '700',
+  },
+  saveBtn: {
+    backgroundColor: '#2563eb',
+  },
+  saveBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+  }
 });
