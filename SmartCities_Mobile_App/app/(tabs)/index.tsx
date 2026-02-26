@@ -18,7 +18,7 @@ import {
   TouchableWithoutFeedback,
   View
 } from "react-native";
-import MapView, { MapPressEvent, Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
+import MapComponent from "../../components/MapComponent";
 
 const { height: H, width: W } = Dimensions.get("window");
 const BOTTOM_SHEET_HEIGHT = Math.max(H * 0.48, 320);
@@ -165,7 +165,7 @@ export default function HomeScreen() {
     });
   };
 
-  const handleLongPress = (e: MapPressEvent) => {
+  const handleLongPress = (e: any) => {
     const coords = e.nativeEvent.coordinate;
     setNewPinCoords(coords);
     setModalVisible(true);
@@ -216,31 +216,15 @@ export default function HomeScreen() {
 
       {/* Map */}
       <View style={styles.mapWrap}>
-        <MapView
-          provider={PROVIDER_GOOGLE}
-          style={styles.map}
+        <MapComponent
+          pins={pins}
           initialRegion={initialRegion}
-          showsUserLocation={false}
+          onPinPress={openFor}
           onLongPress={handleLongPress}
-        >
-          {pins.map((p) => (
-            <Marker
-              key={p.id}
-              coordinate={p.coordinate}
-              onPress={() => openFor(p)}
-              title={p.title}
-              description={p.subtitle}
-            >
-              <PulsingMarker />
-            </Marker>
-          ))}
-          
-          {modalVisible && newPinCoords && (
-             <Marker coordinate={newPinCoords} opacity={0.6}>
-               <PulsingMarker />
-             </Marker>
-          )}
-        </MapView>
+          modalVisible={modalVisible}
+          newPinCoords={newPinCoords}
+          PulsingMarker={PulsingMarker}
+        />
       </View>
 
       {/* Instructions Overlay */}
